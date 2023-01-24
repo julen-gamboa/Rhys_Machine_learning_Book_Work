@@ -154,3 +154,81 @@ holdoutCV = resample(learner = knn, task = diabetesTask,
                       resampling = holdout, measures = list(mmce, acc))
 
 holdoutCV$aggr
+
+#####################
+####Exercise 2#######
+
+holdoutExercise = makeResampleDesc(method = "Holdout", split = 1/10,
+                           stratify = FALSE)
+
+holdoutCVExercise = resample(learner = knn, task = diabetesTask,
+                     resampling = holdoutExercise, measures = list(mmce, acc))
+
+holdoutCVExercise$aggr
+
+####################
+
+####Calculating a Confusion Matrix#####
+
+calculateConfusionMatrix(holdoutCV$pred, relative = TRUE)
+
+# The absolute confusion matrix is easier to interpret. The rows
+# show the true class labels, and the columns show the predicted labels.
+# The numbers represent the number of cases in every combination of
+# true class and predicted class.
+# Correctly classified patients are found on the diagonal of the matrix
+# (where true class == predicted class).
+
+# As the performance metrics reported by holdout CV depend so heavily
+# on how much of the data we use as the training and test sets, I try
+# to avoid it unless my model is very expensive to train, so I generally
+# prefer k-fold CV.
+
+####K-fild cross-validation####
+
+# In k-fold CV, we randomly split the data into approximately equal-sized
+#chunks called folds. Then we reserve one of the folds as a test set and
+# use the remaining data as the training set (just like in holdout).
+# We pass the test set through the model and make a record of the relevant
+# performance metrics. Now, we use a different fold of the data as
+# our test set and do the same thing. We continue until all the folds
+# have been used once as the test set. We then get an average of the
+# performance metric as an estimate of model performance.
+
+# we can improve this a little by using repeated k-fold CV, where, after the
+# previous procedure, we shuffle the data around and perform it again.
+# A commonly chosen value of k for k-fold is 10. Again, this depends on
+# the size of the data, among other things, but it is a reasonable
+# value for many datasets.  If you have the computational power, it is
+# usually preferred to use repeated k-fold CV instead of ordinary k-fold.
+
+kFold = makeResampleDesc(method = "RepCV", folds = 10, reps = 50,
+                          stratify = TRUE)
+
+kFoldCV = resample(learner = knn, task = diabetesTask,
+                    resampling = kFold, measures = list(mmce, acc))
+
+kFoldCV$aggr
+kFoldCV$measures.test
+
+####Exercise 3##############
+############################
+
+kFold_500 = makeResampleDesc(method = "RepCV", folds = 3, reps = 500,
+                             stratify = TRUE)
+
+kFoldCV_500 <- resample(learner = knn, task = diabetesTask,
+                       resampling = kFold_500, measures = list(mmce, acc))
+
+kFold_5 <- makeResampleDesc(method = "RepCV", folds = 3, reps = 5,
+                           stratify = TRUE)
+
+kFoldCV_5 <- resample(learner = knn, task = diabetesTask,
+                     resampling = kFold_5, measures = list(mmce, acc))
+
+kFoldCV_500$aggr
+
+kFoldCV_5$aggr
+
+#############################
+
