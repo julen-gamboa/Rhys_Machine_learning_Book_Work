@@ -232,3 +232,158 @@ kFoldCV_5$aggr
 
 #############################
 
+####CALCULATING A CONFUSION MATRIX for k-fold CV#####
+
+calculateConfusionMatrix(kFoldCV$pred, relative = TRUE)
+
+
+####Leave-one-out cross-validation####
+
+# Because the test set is only a single observation, leave-one-out CV tends
+# to give quite variable estimates of model performance (because the
+# performance estimate of each iteration depends on correctly labeling
+# that single test case). But it can give lessvariable estimates of
+# model performance than k-fold when your dataset is small.
+
+LOO = makeResampleDesc(method = "LOO")
+
+LOOCV = resample(learner = knn, task = diabetesTask, resampling = LOO,
+                  measures = list(mmce, acc))
+
+LOOCV$aggr
+
+calculateConfusionMatrix(LOOCV$pred, relative = TRUE)
+
+#############################
+####Exercise 4####
+
+
+LOO_Strat = makeResampleDesc(method = "LOO", stratify = TRUE)
+#Doesn't work
+
+LOO_Reps = makeResampleDesc(method = "LOO", reps = 5)
+#Doesn't make use of the reps argument
+
+####################
+
+
+####Parameters & hyperparameters#####
+
+# hyperparameter: a variable or option that controls how a model makes
+# predictions but is not estimated from the data.
+# Always use a procedure called hyperparameter tuning to automate
+# the selection process (unless it is computationally prohibitive)
+
+# The first thing we need to do is define a range of values over which mlr
+# will try, when tuning k:
+
+knnParamSpace = makeParamSet(makeDiscreteParam("k", values = 1:10))
+
+# there are also functions to define continuous and logical hyperparameters
+
+# Next, we define how we want mlr to search the parameter space.
+
+gridSearch = makeTuneControlGrid()
+
+# Next, we define how we’re going to cross-validate the tuning procedure.
+# In this case, will use repeated k-fold CV
+
+# The principle here is that for every value
+# in the parameter space (integers 1 to 10), we perform repeated k-fold CV.
+# For each value of k, we take the average performance measure across all
+# those iterations and compare it with the average performance measures
+# for all the other values of k we tried. This will hopefully give us the
+# value of k that performs best:
+
+cvForTuning = makeResampleDesc("RepCV", folds = 10, reps = 20)
+
+tunedK = tuneParams("classif.knn", task = diabetesTask,
+                     resampling = cvForTuning,
+                     par.set = knnParamSpace, control = gridSearch)
+
+tunedK$x
+
+# Plot the tuning process
+library(ggplot2)
+
+knnTuningData = generateHyperParsEffectData(tunedK)
+
+plotHyperParsEffect(knnTuningData, x = "k", y = "mmce.test.mean",
+                    plot.type = "line") +
+  theme_bw()
+
+# Now we can train our final model, using our tuned value of k:
+tunedKnn = setHyperPars(makeLearner("classif.knn"),
+                           par.vals = tunedK$x)
+
+tunedKnnModel = train(tunedKnn, diabetesTask)
+
+#Re-run with new hyperparameter
+
+knn = makeLearner("classif.knn", par.vals = list("k" = 7))
+
+knnModel = train(knn, diabetesTask)
+
+knnPred = predict(knnModel, newdata = diabetesTib)
+
+kFold = makeResampleDesc(method = "RepCV", folds = 10, reps = 50,
+                         stratify = TRUE)
+
+kFoldCV = resample(learner = knn, task = diabetesTask,
+                   resampling = kFold, measures = list(mmce, acc))
+
+kFoldCV$aggr
+
+calculateConfusionMatrix(kFoldCV$pred, relative = TRUE)
+
+####Including hyperparameter tuning in cross-validation####
+
+# This takes the form of nested CV, where an inner loop cross-validates
+# different values of our hyperparameter (just as we did earlier),
+# and then the winning hyperparameter value gets passed to an outer CV
+# loop. In the outer CV loop, the winning hyperparameters are used for
+# each fold.
+
+# Nested CV proceeds like this:
+
+# 1 Split the data into training and test sets (this can be done using the
+# holdout, k-fold, or leave-one-out method). This division is called the
+# outer loop.
+
+# 2 The training set is used to cross-validate each value of our hyperparameter
+# search space (using whatever method we decide). This is called the inner loop.
+
+# 3 The hyperparameter that gives the best cross-validated performance from each
+# inner loop is passed to the outer loop.
+
+# 4 A model is trained on each training set of the outer loop, using the best
+# hyperparameter from its inner loop. These models are used to make predictions
+# on their test sets.
+
+# 5 The average performance metrics of these models across the outer loop are
+# then reported as an estimate of how the model will perform on unseen data.
+
+inner = makeResampleDesc("CV")
+
+outer = makeResampleDesc("RepCV", folds = 10, reps = 5)
+
+knnWrapper = makeTuneWrapper("classif.knn", resampling = inner,
+                              par.set = knnParamSpace,
+                              control = gridSearch)
+
+cvWithTuning = resample(knnWrapper, diabetesTask, resampling = outer)
+
+cvWithTuning
+
+####Using our model to make predictions####
+library(tibble)
+
+newDiabetesPatients = tibble(glucose = c(82, 108, 300),
+                              insulin = c(361, 288, 1052),
+                              sspg = c(200, 186, 135))
+
+newDiabetesPatients
+
+newPatientsPred = predict(tunedKnnModel, newdata = newDiabetesPatients)
+
+getPredictionResponse(newPatientsPred)
