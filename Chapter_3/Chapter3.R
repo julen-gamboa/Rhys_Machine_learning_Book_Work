@@ -387,3 +387,101 @@ newDiabetesPatients
 newPatientsPred = predict(tunedKnnModel, newdata = newDiabetesPatients)
 
 getPredictionResponse(newPatientsPred)
+
+# kNN algorithm
+# * It makes no assumptions about the data, such as how it’s distributed.
+# * It cannot natively handle categorical variables (they must be recoded
+# first, or a different distance metric must be used).
+# * When the training set is large, it can be computationally expensive to
+# compute the distance between new data and all the cases in the training set.
+# * The model can’t be interpreted in terms of real-world relationships in
+# the data.
+# * Prediction accuracy can be strongly impacted by noisy data and outliers.
+# * In high-dimensional datasets, kNN tends to perform poorly. In
+# brief, in high dimensions the distances between the cases start to
+# look the same, so finding the nearest neighbors becomes difficult.
+
+##########################
+####Exercise 5, 6, and 7####
+
+data(iris)
+
+irisTask = makeClassifTask(data = iris, target = "Species")
+
+# set the range of k to test
+knnParamSpace = makeParamSet(makeDiscreteParam("k", values = 1:15))
+
+# hyperparameter tune control strategy
+gridSearch = makeTuneControlGrid()
+
+# CV of tuning procedure
+cvForTuning = makeResampleDesc("RepCV", folds = 10, reps = 50)
+
+tunedK = tuneParams("classif.knn", task = irisTask,
+                     resampling = cvForTuning,
+                     par.set = knnParamSpace,
+                     control = gridSearch)
+
+tunedK
+tunedK$x
+
+knnTuningData = generateHyperParsEffectData(tunedK)
+
+plotHyperParsEffect(knnTuningData, x = "k", y = "mmce.test.mean",
+                    plot.type = "line") +
+  theme_bw()
+
+# make the learner with the tuned K
+tunedKnn = setHyperPars(makeLearner("classif.knn"), par.vals = tunedK$x)
+
+# re-train the knn model using the tuned K
+tunedKnnModel = train(tunedKnn, irisTask)
+
+# could create a tibble with new data and use the model to predict what
+# species the new data would be classified as.
+
+# 6 Cross-validate this iris kNN model using nested cross-validation, where the
+# outer cross-validation is holdout with a two-thirds split:
+
+inner = makeResampleDesc("CV")
+
+outerHoldout = makeResampleDesc("Holdout", split = 2/3, stratify = TRUE)
+
+knnWrapper = makeTuneWrapper("classif.knn", resampling = inner,
+                              par.set = knnParamSpace,
+                              control = gridSearch)
+
+holdoutCVWithTuning = resample(knnWrapper, irisTask,
+                                resampling = outerHoldout)
+holdoutCVWithTuning
+
+#7 Repeat the nested cross-validation using 5-fold,
+# non-repeated cross-validation as the outer loop.
+# Which of these methods gives you a more stable MMCE estimate
+# when you repeat them?
+
+outerKfold = makeResampleDesc("CV", iters = 5, stratify = TRUE)
+
+kFoldCVWithTuning = resample(knnWrapper, irisTask,
+                              resampling = outerKfold)
+
+kFoldCVWithTuning
+
+resample(knnWrapper, irisTask, resampling = outerKfold)
+
+# Repeat each validation procedure 10 times and save the mmce value.
+
+library(tidyverse)
+
+kSamples = map_dbl(1:10, ~resample(
+  knnWrapper, irisTask, resampling = outerKfold)$aggr
+)
+
+hSamples = map_dbl(1:10, ~resample(
+  knnWrapper, irisTask, resampling = outerHoldout)$aggr
+)
+
+hist(kSamples, xlim = c(0, 0.11))
+
+hist(hSamples, xlim = c(0, 0.11))
+# Holdout CV introduces more variance.
