@@ -34,3 +34,33 @@
 # used to split that node. This process is repeated for every node as
 # the tree grows.
 
+# rpart is a greedy algorithm
+# * The algorithm isn’t guaranteed to learn a globally optimal model.
+# * If left unchecked, the tree will continue to grow deeper until
+# all the leaves are pure (of only one class).
+# *  For large datasets, growing extremely deep trees becomes computationally
+# expensive.
+
+# Dealing with expensive tree building involves:
+# * Growing a full tree, and then pruning it.
+# * Employ stopping criteria (preferred).
+
+# Stopping criteria (you wanna tune these)
+# * Minimum number of cases in a node before splitting (minsplit)
+# * Maximum depth of the tree (maxdepth)
+# * Minimum improvement in performance for a split (cp)
+# * Minimum number of cases in a leaf (minbucket)
+
+library(mlr)
+library(tidyverse)
+
+data(Zoo, package = "mlbench")
+zooTib = as_tibble(Zoo)
+zooTib
+
+zooTib = mutate_if(zooTib, is.logical, as.factor)
+
+zooTask = makeClassifTask(data = zooTib, target = "type")
+
+tree = makeLearner("classif.rpart")
+
