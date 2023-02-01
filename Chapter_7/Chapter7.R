@@ -51,6 +51,25 @@
 # * Minimum improvement in performance for a split (cp)
 # * Minimum number of cases in a leaf (minbucket)
 
+# Other hyperparameters
+# maxcompete: controls how many candidate splits can be displayed for each node
+# in the model summary. It is useful to understand what the next-best split was
+# after the one that was used, it does not affect model performance, just the
+# summary.
+# maxsurrogate: controls how many surrogate splits are shown. Surrogate splits
+# are splits used if a particular case is missing data for that split. This
+# allows rpart to handle missing data while it learns which splits can be
+# used in place of N.A. variables. This hyperparameter controls how many of
+# these surrogates to retain in the model.
+# usesurrogate: controls how the algorithm uses surrogate splits.
+# 0 = no surrogates used, therefore cases with missing data won't be
+# classified.
+# 1 = surrogates are used but if there is missing data for the split and
+# all other surrogate splits, then the case will not be classified.
+# 2 = surrogates will be used but when there is a case with missing data for
+# the actual split and for all surrogate splits, then it will be sent down
+# the branch that contained most cases (most appropriate value is therefore 2)
+
 library(mlr)
 library(tidyverse)
 
@@ -58,9 +77,69 @@ data(Zoo, package = "mlbench")
 zooTib = as_tibble(Zoo)
 zooTib
 
+# mlr doesn't allow generation of tasks with logical predictors, so they
+# must be converted to factors.
+
 zooTib = mutate_if(zooTib, is.logical, as.factor)
+map_dbl(zooTib, ~sum(is.na(.)))
+
+# train the decision tree model
 
 zooTask = makeClassifTask(data = zooTib, target = "type")
 
 tree = makeLearner("classif.rpart")
+
+# Printing available rpart hyperparameters and then define hyperparameter
+# space for tuning (random search instead of grid search and fold CV without
+# stratification because there are not enough cases to stratify)
+
+getParamSet(tree)
+
+treeParamSpace = makeParamSet(
+  makeIntegerParam("minsplit", lower = 5, upper = 20),
+  makeIntegerParam("minbucket", lower = 3, upper = 10),
+  makeNumericParam("cp", lower = 0.01, upper = 0.1),
+  makeIntegerParam("maxdepth", lower = 3, upper = 10))
+
+randSearch = makeTuneControlRandom(maxit = 200)
+
+cvForTuning = makeResampleDesc("CV", iters = 5)
+
+# Parallelise hyperparameter tuning to speed things up
+# Use tuneParams tostart tuning process
+# arguments are: learner (tree),
+# task (task = zooTask),
+# cv method (resampling = cvForTuning),
+# hyperparameter space (par.set = treeParamSpace), and
+# search method (control = randSearch)
+library(parallel)
+library(parallelMap)
+
+parallelStartSocket(cpus = detectCores())
+tunedTreePars = tuneParams(tree, task = zooTask,
+                            resampling = cvForTuning,
+                            par.set = treeParamSpace,
+                            control = randSearch)
+parallelStop()
+tunedTreePars
+
+# Training the final tuned model
+# create a learner with the tuned hyperparameter
+# contained in tunedTreePars$x
+
+tunedTree = setHyperPars(tree, par.vals = tunedTreePars$x)
+
+# train the final model
+
+tunedTreeModel = train(tunedTree, zooTask)
+
+# Plot the decision tree
+#install.packages("rpart.plot")
+library(rpart.plot)
+
+treeModelData = getLearnerModel(tunedTreeModel)
+
+rpart.plot(treeModelData, roundint = FALSE,
+           box.palette = "BuBn",
+           type = 5)
 
