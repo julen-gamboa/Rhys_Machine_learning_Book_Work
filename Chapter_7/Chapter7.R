@@ -143,3 +143,33 @@ rpart.plot(treeModelData, roundint = FALSE,
            box.palette = "BuBn",
            type = 5)
 
+printcp(treeModelData, digits = 3)
+summary(treeModelData)
+
+# Cross-validating the decision tree model
+# Remember: you must include data-dependent pre-processing in your
+# cross-validation procedure.
+
+# Outer loop: 5-fold cross-validation.
+# Inner loop: cvForTuning resampling
+# Wrapper (Learner and hyperparameter tuning): inner cross-validation strategy
+# (cvForTuning), hyperparameter space, and search method -> (makeTuneWrapper())
+# Parallelise with parallelStartSocket() and start CV procress with resample()
+# resample takes the following args: wrapped learner, task, outer CV strategy.
+
+outer = makeResampleDesc("CV", iters = 5)
+
+treeWrapper = makeTuneWrapper("classif.rpart", resampling = cvForTuning,
+                               par.set = treeParamSpace,
+                               control = randSearch)
+
+parallelStartSocket(cpus = detectCores())
+
+cvWithTuning = resample(treeWrapper, zooTask, resampling = outer)
+parallelStop()
+
+cvWithTuning
+
+# The model has a tendency to overfit during cross-validation.
+# How do we overcome this problem? The answer is to use an ensemble method.
+
