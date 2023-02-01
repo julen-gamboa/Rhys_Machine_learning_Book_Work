@@ -61,42 +61,48 @@ tunedTree = setHyperPars(tree, par.vals = tunedTreePars$x)
 
 tunedTreeModel = train(tunedTree, zooTask)
 
-# Plot the decision tree
-#install.packages("rpart.plot")
-library(rpart.plot)
+#### Building a random forest model####
+# Tuning the random forest hyperparameters (cont. from 7.8 on previous chapter)
 
-treeModelData = getLearnerModel(tunedTreeModel)
+forest = makeLearner("classif.randomForest")
 
-rpart.plot(treeModelData, roundint = FALSE,
-           box.palette = "BuBn",
-           type = 5)
+# Creates hyperparameter tuning space)
+forestParamSpace = makeParamSet(
+  makeIntegerParam("ntree", lower = 300, upper = 300),
+  makeIntegerParam("mtry", lower = 6, upper = 12),
+  makeIntegerParam("nodesize", lower = 1, upper = 5),
+  makeIntegerParam("maxnodes", lower = 5, upper = 20))
 
-printcp(treeModelData, digits = 3)
-summary(treeModelData)
+# Defines random search method with 100 iterations
+randSearch = makeTuneControlRandom(maxit = 100)
 
-# Cross-validating the decision tree model
-# Remember: you must include data-dependent pre-processing in your
-# cross-validation procedure.
-
-# Outer loop: 5-fold cross-validation.
-# Inner loop: cvForTuning resampling
-# Wrapper (Learner and hyperparameter tuning): inner cross-validation strategy
-# (cvForTuning), hyperparameter space, and search method -> (makeTuneWrapper())
-# Parallelise with parallelStartSocket() and start CV procress with resample()
-# resample takes the following args: wrapped learner, task, outer CV strategy.
-
-outer = makeResampleDesc("CV", iters = 5)
-
-treeWrapper = makeTuneWrapper("classif.rpart", resampling = cvForTuning,
-                              par.set = treeParamSpace,
-                              control = randSearch)
+# Defines a 5-fold cross-validation strategy
+cvForTuning = makeResampleDesc("CV", iters = 5)
 
 parallelStartSocket(cpus = detectCores())
 
-cvWithTuning = resample(treeWrapper, zooTask, resampling = outer)
+# Tunes the hyperparameters
+tunedForestPars <- tuneParams(forest, task = zooTask,
+                              resampling = cvForTuning,
+                              par.set = forestParamSpace,
+                              control = randSearch)
 parallelStop()
 
-cvWithTuning
+tunedForestPars
 
-# The model has a tendency to overfit during cross-validation.
-# How do we overcome this problem? The answer is to use an ensemble method.
+# Train the final model
+
+tunedForest = setHyperPars(forest, par.vals = tunedForestPars$x)
+
+tunedForestModel = train(tunedForest, zooTask)
+
+# Plotting the out of the bag error
+
+forestModelData = getLearnerModel(tunedForestModel)
+
+species = colnames(forestModelData$err.rate)
+
+plot(forestModelData, col = 1:length(species), lty = 1:length(species))
+legend("topright", species,
+       col = 1:length(species),
+       lty = 1:length(species))
