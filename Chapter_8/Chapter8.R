@@ -282,3 +282,128 @@ cvWithTuning = resample(forestWrapper, zooTask, resampling = outer)
 parallelStop()
 cvWithTuning
 
+#### Same problem tackled with XGBoost ####
+
+# Eight hyperparameters:
+# eta: learning rate (between 0 and 1). Model weights are multiplied by this
+# value. If set low it slows training but it helps prevent overfitting.
+
+# gamma: the minimum amount of node splitting needed to improve predictions.
+# similar to the cp value in rpart.
+
+# max_depth: max level to which each tree can grow.
+
+# min_child_weight: minimum degree of impurity needed in a node before
+# attempting to split it.
+
+# subsample: proportion of cases to be randomly sampled (without replacement)
+# for each tree (if set to 1 it uses all cases in the training set).
+
+# colsample_bytree: proportion of predictor variables sampled for each tree.
+# can also sample by level or node with colsample_bylevel and colsample_bynode.
+
+# nrounds: number of sequentially built trees in the model.
+
+# eval_metric: type of residual error/loss function to be used. Either proportion
+# of cases that were incorrectly classified (merror) or the log loss (mlogloss)
+
+### Create a learner with classification method as XGBoost.
+
+xgb = makeLearner("classif.xgboost")
+
+# mutate all non numerical variables. Leave type as categorical
+# by using the .vars argument and selecting all but type
+# you can then use .funs argument to specify the mutation into numeric
+
+zooXgb = mutate_at(zooTib, .vars = vars(-type), .funs = as.numeric)
+
+xgbTask = makeClassifTask(data = zooXgb, target = "type")
+
+# Most of our predictors are binary except legs, which makes sense as a
+# numeric variable. However, if we have a factor with many discrete levels, it
+# doesn't make sense to treat it as numeric but it can work well if you
+# recode each level of the factor as an arbitrary integer and let the
+# decision tree find the best split for us. This is called numerical encoding
+# (it's what has been done to the variables in the dataset).
+# You may have heard of another method of encoding categorical features
+# called one-hot encoding. One-hot encoding factors for tree-based models
+# often results in poor performance.
+
+# Define the hyperparameter space for tuning
+
+xgbParamSpace = makeParamSet(
+  makeNumericParam("eta", lower = 0, upper = 1),
+  makeNumericParam("gamma", lower = 0, upper = 5),
+  makeIntegerParam("max_depth", lower = 1, upper = 5),
+  makeNumericParam("min_child_weight", lower = 1, upper = 10),
+  makeNumericParam("subsample", lower = 0.5, upper = 1),
+  makeNumericParam("colsample_bytree", lower = 0.5, upper = 1),
+  makeIntegerParam("nrounds", lower = 30, upper = 50),
+  makeDiscreteParam("eval_metric", values = c("merror", "mlogloss")))
+
+# Define the search method and number of iterations
+randSearch = makeTuneControlRandom(maxit = 10000)
+
+# Set cross-validation strategy (5-fold cross-validation)
+cvForTuning = makeResampleDesc("CV", iters = 5)
+
+tunedXgbPars = tuneParams(xgb, task = xgbTask,
+                           resampling = cvForTuning,
+                           par.set = xgbParamSpace,
+                           control = randSearch)
+tunedXgbPars
+
+# Train the final XGBoost model using the tuned hyperparameters.
+# First make a learner with setHyperPars() and then pass it to the train()
+# function.
+
+tunedXgb = setHyperPars(xgb, par.vals = tunedXgbPars$x)
+
+tunedXgbModel = train(tunedXgb, xgbTask)
+
+# Plot the loss function against the iteration number to see if we have
+# included enough trees.
+
+xgbModelData = getLearnerModel(tunedXgbModel)
+
+# If the hyperparameter tuning selects log loss instead of classification error
+# you just change the argument in aes(iter, train merror) to aes(iter, mlogloss)
+# and vice versa.
+
+ggplot(xgbModelData$evaluation_log, aes(iter, train_merror)) +
+  geom_line() +
+  geom_point()
+
+# Plotting the individual decision trees
+#install.packages("DiagrammeR")
+library(DiagrammeR)
+
+xgboost::xgb.plot.tree(model = xgbModelData, trees = 1:5)
+
+# represent the final ensemble as a single tree structure
+xgboost::xgb.plot.multi.trees(xgbModelData)
+
+# Cross-validate the model-building process
+
+# outer loop
+outer = makeResampleDesc("CV", iters = 3)
+
+# wrapper
+xgbWrapper = makeTuneWrapper("classif.xgboost",
+                              resampling = cvForTuning,
+                              par.set = xgbParamSpace,
+                              control = randSearch)
+# inner loop
+cvWithTuning = resample(xgbWrapper, xgbTask, resampling = outer)
+
+cvWithTuning
+
+# Benchmarking vs other algos
+learners = list(makeLearner("classif.knn"),
+                makeLearner("classif.LiblineaRL1LogReg"),
+                makeLearner("classif.svm"),
+                tunedTree,
+                tunedForest,
+                tunedXgb)
+benchCV = makeResampleDesc("RepCV", folds = 10, reps = 5)
+bench = benchmark(learners, xgbTask, benchCV)
